@@ -8,10 +8,20 @@ import struct
 
 '''
 Note: Writing a parser for v8 snapshot in python is not a right way at this time. Atleast it is going
-to take lot of time in porting it. Lets not take this route.
+to take lot of time in porting it. It may not work with future versions. This structure is based 
+on the in-memory object structures.
+'''
+
+'''
+evalNWBin()
+	\nwjs12\src\content\nw\src\api\window_bindings.js
+		\nwjs12\src\content\nw\src\api\window_bindings.cc
+		..
+		\nwjs12\src\v8\src\serialize.cc
 '''
 
 payload= []
+position= 0
 
 def getFileasBA(pe_file):
 	return bytearray(open(pe_file, "rb").read())
@@ -31,33 +41,39 @@ def getFileasBA(pe_file):
     return answer;
   }
 '''
-def GetInt(payload):
-	next_int= struct.unpack('I', payload[:4])[0]
-	bytes= (next_int & 3) + 1
+def GetInt():
+	global payload, position
+	answer= struct.unpack('I', payload[:4])[0]
+	bytes= (answer & 3) + 1
+	print "\t advance= 0x%x" % (bytes)
+	payload= payload[bytes:]
+	position= position + bytes
 	mask= 0xffffffff >> (32 - (bytes << 3))
-	next_int= next_int & mask
-	next_int= next_int >> 2
-	return (next_int, bytes)
+	answer= answer & mask
+	answer= answer >> 2
+	return answer
 
 def ReadData():
-	global payload
+	global payload, position
 	while len(payload) > 0:
 		#print(''.join('%02x '% x for x in payload[0:1]))
 		code= struct.unpack('B', payload[0:1])[0]
-		print "code= %x" % (code)
+		print "code= 0x%02x(%d) at position= %d" % (code, code, position)
+		print "length of the payload= %d" % (len(payload))
 		payload= payload[1:]
+		position= position + 1
 		
-		if code == 1:
-			(next_int, advance)= GetInt(payload)
-			print "\t advance= 0x%x" % (advance)
-			payload= payload[advance:]
+		#if code == 0:
+		#	ReadData()
+		#if code in range(1, 7 + 1):
+		if code in range(0, 7 + 1):
+			next_int= GetInt()
 			
 			size= 0
 			reserved_size= 0
 			if next_int == 0:
 				print "\t next_int= 0x%x" % (next_int)
-				(next_int, advance)= GetInt(payload)
-				payload= payload[advance:]
+				next_int= GetInt()
 				
 				size= next_int << 2
 				reserved_size= size + 4
@@ -67,33 +83,108 @@ def ReadData():
 			print "\t next_int= 0x%x" % (next_int)
 			print "\t size= 0x%x" % (size)
 			print "\t reserved_size= 0x%x" % (reserved_size)
-			ReadData()
-		elif code in range(32, 32+32):
-			for i in range(0, code):
-				print "\t Pointer= 0x%x" % (struct.unpack('I', payload[0:4])[0])
-				payload= payload[4:]
-		elif code in range(97, 97 + 14):
-			print "repeats= %d" % (code - 0x60)
+			#ReadData() #recusion
+		elif code == 10:
+			cache_index= GetInt()
+		elif code == 11 or code == 75:
+			skip= GetInt()
+			reference_id= GetInt()
+		elif code == 12:
+			size= GetInt()
+		elif code == 13 or code == 14:
+			builtin_id= GetInt()
+		elif code in range(16, 16 + 0 + 0 + 7 + 1):
+			from_GetBackReferencedObject= GetInt()
+		elif code in range(24, 24 + 0 + 0 + 7 + 1):
+			skip = GetInt()
+			from_GetBackReferencedObject= GetInt()
+		elif code == 32:
+			size= GetInt()
+			#size= 0
+			#size= next_int << 2
+			print "\t size= 0x%x" % (size)
+			payload= payload[size:]
+			position= position + size
+		elif code in range(32 + 1, 32 + 34):
+			#for i in range(0, code-32):
+			#	print "\t Pointer= 0x%x" % (struct.unpack('I', payload[0:4])[0])
+			#	payload= payload[4:]
+			#	position= position + 4
+			bytec= (code - 32) * 4
+			print "Raw Object:"
+			#print("\t" + ''.join('%02x '% x for x in payload[:bytec]))
+			
+			output= ""
+			for x in payload[:bytec]:
+				if x in range(65, 91):
+					output += ('%02c ' % x)
+				else:
+					output += ('%02x ' % x)
+			print "\t" + output		
+			payload= payload[bytec:]
+			position= position + bytec
+		elif code == 96:
+			repeats = GetInt()
+		elif code in range(97, 97 + 14 + 1): # plus 1 for range
+			print "\t repeats= %d" % (code - 0x60)
 		elif code in range(160, 160 + 16 + 12 + 3):
-			print "root_id= %d" % (code & 0x1f)
-			#break
+			print "\t root_id= %d" % (code & 0x1f)
 		elif code in range(224, 224 + 16 + 12 + 3):
-			print "root_id= %d" % (code & 0x1f)
+			print "\t root_id= %d" % (code & 0x1f)
 			#payload= payload[1:]
 			#skiplen= struct.unpack('I', payload[0:4])[0]
-			(skiplen, advance)= GetInt(payload)
-			print "skip= %d" % (skiplen)
-			payload= payload[skiplen:]
-			break
+			skiplen= GetInt()
+			#print "\t skip= %d" % (skiplen)
+			#payload= payload[skiplen:]
+			#position= position + skiplen
+			#break
 		elif code == 96:
 			repeats= struct.unpack('I', payload[0:4])[0]
-			print "repeats= %d" % (repeats)
+			print "\t repeats= %d" % (repeats)
+		elif code == 9:
+			next_int= GetInt()
+			print "\t unknownvalue_9= %d" % (next_int)
+		elif code in range(112, 112 + 4 + 3+ 1): # plus 1 for range
+			print "\t Hot Object index= %d" % (code & 0x7)
+		elif code in range(120, 120 + 4 + 3 + 1): # plus 1 for range
+			skiplen= GetInt()
+		elif code in range(192 + 1, 192 + 7 + 1):
+			skip = GetInt()
+		elif code == (13 + 0 + 128 + 0) or code  == (13 + 64 + 128 + 0):
+			builtin_id = GetInt()
+		elif code == (14 + 0 + 0 + 0) or code  == (14 + 0 + 128 + 0) or code == (14 + 64 + 128 + 0):
+			index = GetInt()
+		elif code in range (16 + 64 + 128 + 0, 16 + 64 + 128 + 7 + 1): # plus 1 for range
+			GetInt()
+		elif code in range (24 + 64 + 128 + 0, 24 + 64 + 128 + 7 + 1): # plus 1 for range
+			#print "ERRORRRRRRRRRRRRRRR"
+			skip= GetInt()
+			from_GetBackReferencedObject= GetInt()
+		elif code == 205:
+			builtin_id = GetInt();
+		elif code == 207:
+			index= struct.unpack('B', payload[0:1])[0]
+			print "kNativesStringResource index= 0x%x(%d)" % (index, index)
+			payload= payload[1:]
+			position= position + 1
+		elif code == 79:
+			space= struct.unpack('B', payload[0:1])[0]
+			print "kNextChunk space= 0x%x(%d)" % (space, space)
+			payload= payload[1:]
+			position= position + 1
+		elif code == 18:
+			#space= struct.unpack('H', payload[0:2])[0]
+			index= GetInt()
+		elif code == 143:
+			print "Error"
+			sys.exit(-1)
 		else:
-			print "Unknown code= %d" % (code)
-			break;
+			print "\t Unknown code= %d" % (code)
+			sys.exit(-1)
+			#break;
 
 def dumpv8snapshot(file):
-	global payload
+	global payload, position
 	ba = getFileasBA(file)
 	kCheckSumOffset= struct.unpack('I', ba[0:4])[0]
 	kNumInternalizedStringsOffset= struct.unpack('I', ba[1*4:2*4])[0]
@@ -121,7 +212,7 @@ def dumpv8snapshot(file):
 		total_header_size= total_header_size + 4
 	
 	print "kPayloadLengthOffset= %d" % kPayloadLengthOffset
-	#print "total_header_size= %d" % total_header_size
+	print "total_header_size= %d" % total_header_size
 	
 	'''
 		From here onwards, we need to rewrite this function.
@@ -129,7 +220,7 @@ def dumpv8snapshot(file):
 		in src/v8/src/serialize.cc
 	'''
 	payload= ba[total_header_size:total_header_size+kPayloadLengthOffset]
-	print "Length of the payload= %d" % (len(payload))
+	print "Length of the payload= %d\n" % (len(payload))
 	ReadData()
 	
 	
