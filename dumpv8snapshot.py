@@ -18,6 +18,32 @@ evalNWBin()
 		\nwjs12\src\content\nw\src\api\window_bindings.cc
 		..
 		\nwjs12\src\v8\src\serialize.cc
+		
+Important functions in serialize/deserialize
+
+SerializedCodeData::SerializedCodeData()
+CodeSerializer class
+Code class
+
+
+  enum Kind {
+    FUNCTION
+	OPTIMIZED_FUNCTION
+	STUB
+	HANDLER
+	BUILTIN
+	REGEXP
+	LOAD_IC
+	KEYED_LOAD_IC
+	CALL_IC
+	STORE_IC
+	KEYED_STORE_IC
+	BINARY_OP_IC
+	COMPARE_IC
+	COMPARE_NIL_IC
+	TO_BOOLEAN_IC
+    NUMBER_OF_KINDS
+  };
 '''
 
 payload= []
@@ -63,9 +89,6 @@ def ReadData():
 		payload= payload[1:]
 		position= position + 1
 		
-		#if code == 0:
-		#	ReadData()
-		#if code in range(1, 7 + 1):
 		if code in range(0, 7 + 1):
 			next_int= GetInt()
 			
@@ -83,7 +106,9 @@ def ReadData():
 			print "\t next_int= 0x%x" % (next_int)
 			print "\t size= 0x%x" % (size)
 			print "\t reserved_size= 0x%x" % (reserved_size)
-			#ReadData() #recusion
+		elif code == 9:
+			next_int= GetInt()
+			print "\t unknownvalue_9= %d" % (next_int)
 		elif code == 10:
 			cache_index= GetInt()
 		elif code == 11 or code == 75:
@@ -93,6 +118,9 @@ def ReadData():
 			size= GetInt()
 		elif code == 13 or code == 14:
 			builtin_id= GetInt()
+		elif code == 15:
+			#knop
+			continue
 		elif code in range(16, 16 + 0 + 0 + 7 + 1):
 			from_GetBackReferencedObject= GetInt()
 		elif code in range(24, 24 + 0 + 0 + 7 + 1):
@@ -100,16 +128,10 @@ def ReadData():
 			from_GetBackReferencedObject= GetInt()
 		elif code == 32:
 			size= GetInt()
-			#size= 0
-			#size= next_int << 2
 			print "\t size= 0x%x" % (size)
 			payload= payload[size:]
 			position= position + size
 		elif code in range(32 + 1, 32 + 34):
-			#for i in range(0, code-32):
-			#	print "\t Pointer= 0x%x" % (struct.unpack('I', payload[0:4])[0])
-			#	payload= payload[4:]
-			#	position= position + 4
 			bytec= (code - 32) * 4
 			print "Raw Object:"
 			#print("\t" + ''.join('%02x '% x for x in payload[:bytec]))
@@ -123,6 +145,11 @@ def ReadData():
 			print "\t" + output		
 			payload= payload[bytec:]
 			position= position + bytec
+		elif code == 79:
+			space= struct.unpack('B', payload[0:1])[0]
+			print "kNextChunk space= 0x%x(%d)" % (space, space)
+			payload= payload[1:]
+			position= position + 1
 		elif code == 96:
 			repeats = GetInt()
 		elif code in range(97, 97 + 14 + 1): # plus 1 for range
@@ -131,33 +158,20 @@ def ReadData():
 			print "\t root_id= %d" % (code & 0x1f)
 		elif code in range(224, 224 + 16 + 12 + 3):
 			print "\t root_id= %d" % (code & 0x1f)
-			#payload= payload[1:]
-			#skiplen= struct.unpack('I', payload[0:4])[0]
 			skiplen= GetInt()
-			#print "\t skip= %d" % (skiplen)
-			#payload= payload[skiplen:]
-			#position= position + skiplen
-			#break
-		elif code == 96:
-			repeats= struct.unpack('I', payload[0:4])[0]
-			print "\t repeats= %d" % (repeats)
-		elif code == 9:
-			next_int= GetInt()
-			print "\t unknownvalue_9= %d" % (next_int)
 		elif code in range(112, 112 + 4 + 3+ 1): # plus 1 for range
 			print "\t Hot Object index= %d" % (code & 0x7)
 		elif code in range(120, 120 + 4 + 3 + 1): # plus 1 for range
 			skiplen= GetInt()
-		elif code in range(192 + 1, 192 + 7 + 1):
-			skip = GetInt()
 		elif code == (13 + 0 + 128 + 0) or code  == (13 + 64 + 128 + 0):
 			builtin_id = GetInt()
+		elif code in range(192 + 1, 192 + 7 + 1):
+			skip = GetInt()
 		elif code == (14 + 0 + 0 + 0) or code  == (14 + 0 + 128 + 0) or code == (14 + 64 + 128 + 0):
 			index = GetInt()
 		elif code in range (16 + 64 + 128 + 0, 16 + 64 + 128 + 7 + 1): # plus 1 for range
 			GetInt()
 		elif code in range (24 + 64 + 128 + 0, 24 + 64 + 128 + 7 + 1): # plus 1 for range
-			#print "ERRORRRRRRRRRRRRRRR"
 			skip= GetInt()
 			from_GetBackReferencedObject= GetInt()
 		elif code == 205:
@@ -167,21 +181,12 @@ def ReadData():
 			print "kNativesStringResource index= 0x%x(%d)" % (index, index)
 			payload= payload[1:]
 			position= position + 1
-		elif code == 79:
-			space= struct.unpack('B', payload[0:1])[0]
-			print "kNextChunk space= 0x%x(%d)" % (space, space)
-			payload= payload[1:]
-			position= position + 1
-		elif code == 18:
-			#space= struct.unpack('H', payload[0:2])[0]
-			index= GetInt()
 		elif code == 143:
 			print "Error"
 			sys.exit(-1)
 		else:
 			print "\t Unknown code= %d" % (code)
 			sys.exit(-1)
-			#break;
 
 def dumpv8snapshot(file):
 	global payload, position
